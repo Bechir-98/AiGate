@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv
+uv.lock
+uv.lock.bak
+
+# Environment variables / secrets
+.env
+.env.*
+
+# Model weights (large, and you're loading these locally rather than committing them)
+gliner2-PII/onnx/*.onnx
+gliner2-PII/onnx/*.bin
+*.onnx
+*.safetensors
+*.bin
+
+# Hugging Face cache (if you point HF_HOME at the project during local-model workarounds)
+.cache/
+hf_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# FastAPI / logs
+*.log

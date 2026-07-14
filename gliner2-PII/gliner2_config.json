@@ -1,0 +1,23 @@
+{
+  "max_width": 8,
+  "special_tokens": {
+    "[SEP_STRUCT]": 250102,
+    "[SEP_TEXT]": 250103,
+    "[P]": 250104,
+    "[C]": 250105,
+    "[E]": 250106,
+    "[R]": 250107,
+    "[L]": 250108,
+    "[EXAMPLE]": 250109,
+    "[OUTPUT]": 250110,
+    "[DESCRIPTION]": 250111
+  },
+  "onnx_files": {
+    "fp32": {
+      "encoder": "onnx/encoder.onnx",
+      "classifier": "onnx/classifier.onnx",
+      "span_rep": "onnx/span_rep.onnx",
+      "count_embed": "onnx/count_embed.onnx"
+    }
+  }
+}
