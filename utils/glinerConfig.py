@@ -94,6 +94,11 @@ def create_gliner2_analyzer(load_onnx_model: bool = True, model_name: str = "gli
         "ip_address": "IP_ADDRESS",
     }
 
+    session_options = ort.SessionOptions()
+    session_options.intra_op_num_threads = 2
+    session_options.inter_op_num_threads = 1
+    session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+
     gliner2_recognizer = GLiNER2Recognizer(
         model_name=model_name,
         entity_mapping=entity_mapping,
