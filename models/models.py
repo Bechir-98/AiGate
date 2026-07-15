@@ -1,8 +1,10 @@
 from pydantic import BaseModel
+from typing import List, Optional
 
 class Input(BaseModel):
     content: str
     scan_type: int | None = None
+    entities: Optional[List[str]] = None
 
 class ScanResult(BaseModel):
     entity_type: str
@@ -11,7 +13,7 @@ class ScanResult(BaseModel):
     score: float
 
 class AnonymizeRequest(BaseModel):
-    text: Input
+    text: str
     results: list[ScanResult]
 
 class AnonymizedItem(BaseModel):
@@ -23,3 +25,7 @@ class AnonymizedItem(BaseModel):
 class DeanonymizeRequest(BaseModel):
     anonymized_text: str
     items: list[AnonymizedItem]
+
+class EntityMapping(BaseModel):
+    gliner_label:str
+    presidio_label:str

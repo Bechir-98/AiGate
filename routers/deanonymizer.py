@@ -3,7 +3,7 @@ from presidio_analyzer import RecognizerResult
 from presidio_anonymizer import DeanonymizeEngine
 from presidio_anonymizer.entities import OperatorConfig, OperatorResult
 from utils.vault import redis_client, RedisVaultOperator, RedisUnvaultOperator
-from utils.models import DeanonymizeRequest
+from models.models import DeanonymizeRequest
 
 router = APIRouter(prefix="/deanonymize")
 deanonymize_engine = DeanonymizeEngine()

@@ -3,7 +3,12 @@ import redis
 import secrets
 from presidio_anonymizer.operators import Operator, OperatorType
 
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 class RedisVaultOperator(Operator):
     def operate(self, text: str, params: dict = None) -> str:
@@ -17,8 +22,7 @@ class RedisVaultOperator(Operator):
             "entity_type": entity_type
         }
         
-        # Save to Redis and increment metrics
-        redis_client.set(token, json.dumps(vault_payload))
+        redis_client.set(token, json.dumps(vault_payload), ex=1800)
         redis_client.hincrby("metrics:detected_entities", entity_type, 1)
         
         return token

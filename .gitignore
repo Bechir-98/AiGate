@@ -39,3 +39,8 @@ Thumbs.db
 
 # FastAPI / logs
 *.log
+
+frontend
+docker-compose.yml
+Dockerfile
+requirements.txt
