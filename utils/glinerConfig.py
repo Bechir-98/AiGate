@@ -33,19 +33,46 @@ class NullNlpEngine(NlpEngine):
 
 def create_gliner_analyzer():
     entity_mapping = {
-        "person": "PERSON",
-        "organization": "ORGANIZATION",
-        "email": "EMAIL_ADDRESS",
-        "phone_number": "PHONE_NUMBER",
-        "address": "LOCATION",
-        "credit_card": "CREDIT_CARD",
-        "api_key": "CREDENTIAL",
-        "access_token": "CREDENTIAL",
-        "token": "CREDENTIAL",
-        "mac_address": "MAC_ADDRESS",
-        "imei": "IMEI",
-        "ip_address": "IP_ADDRESS",
-    }
+    # Personnes
+    "person": "PERSON",
+    "date_of_birth": "DATE_TIME",
+
+    # Contact / adresse
+    "email": "EMAIL_ADDRESS",
+    "phone_number": "PHONE_NUMBER",
+    "address": "LOCATION",
+
+    # IDs gouvernementaux
+    "national_id_number": "US_SSN",
+    "passport_number": "US_PASSPORT",
+    "drivers_license_number": "US_DRIVER_LICENSE",
+    "tax_id": "US_ITIN",
+
+    # Bancaire / paiement
+    "account_number": "IBAN_CODE",
+    "routing_number": "US_BANK_NUMBER",
+    "iban": "IBAN_CODE",
+    "card_number": "CREDIT_CARD",
+    "card_expiry": "CREDIT_CARD",
+    "card_cvv": "CREDIT_CARD",
+
+    # Identité numérique
+    "username": "CREDENTIAL",
+    "ip_address": "IP_ADDRESS",
+    "account_id": "CREDENTIAL",
+    "sensitive_account_id": "CREDENTIAL",
+
+    # Secrets
+    "password": "CREDENTIAL",
+    "api_key": "CREDENTIAL",
+    "access_token": "CREDENTIAL",
+    "recovery_code": "CREDENTIAL",
+
+    # Dates sensibles
+    "document_date": "DATE_TIME",
+    "expiration_date": "DATE_TIME",
+    "transaction_date": "DATE_TIME",
+}
 
     # Optimize ONNX Runtime for CPU usage to prevent thread context-switching overhead
     session_options = ort.SessionOptions()
@@ -80,19 +107,46 @@ def create_gliner2_analyzer(load_onnx_model: bool = True, model_name: str = "gli
     from utils.gliner2Recognizer import GLiNER2Recognizer
     
     entity_mapping = {
-        "person": "PERSON",
-        "organization": "ORGANIZATION",
-        "email": "EMAIL_ADDRESS",
-        "phone_number": "PHONE_NUMBER",
-        "address": "LOCATION",
-        "credit_card": "CREDIT_CARD",
-        "api_key": "CREDENTIAL",
-        "access_token": "CREDENTIAL",
-        "token": "CREDENTIAL",
-        "mac_address": "MAC_ADDRESS",
-        "imei": "IMEI",
-        "ip_address": "IP_ADDRESS",
-    }
+    # Personnes
+    "person": "PERSON",
+    "date_of_birth": "DATE_TIME",
+
+    # Contact / adresse
+    "email": "EMAIL_ADDRESS",
+    "phone_number": "PHONE_NUMBER",
+    "address": "LOCATION",
+
+    # IDs gouvernementaux
+    "national_id_number": "US_SSN",
+    "passport_number": "US_PASSPORT",
+    "drivers_license_number": "US_DRIVER_LICENSE",
+    "tax_id": "US_ITIN",
+
+    # Bancaire / paiement
+    "account_number": "IBAN_CODE",
+    "routing_number": "US_BANK_NUMBER",
+    "iban": "IBAN_CODE",
+    "card_number": "CREDIT_CARD",
+    "card_expiry": "CREDIT_CARD",
+    "card_cvv": "CREDIT_CARD",
+
+    # Identité numérique
+    "username": "CREDENTIAL",
+    "ip_address": "IP_ADDRESS",
+    "account_id": "CREDENTIAL",
+    "sensitive_account_id": "CREDENTIAL",
+
+    # Secrets
+    "password": "CREDENTIAL",
+    "api_key": "CREDENTIAL",
+    "access_token": "CREDENTIAL",
+    "recovery_code": "CREDENTIAL",
+
+    # Dates sensibles
+    "document_date": "DATE_TIME",
+    "expiration_date": "DATE_TIME",
+    "transaction_date": "DATE_TIME",
+}
 
     session_options = ort.SessionOptions()
     session_options.intra_op_num_threads = 2
@@ -100,11 +154,11 @@ def create_gliner2_analyzer(load_onnx_model: bool = True, model_name: str = "gli
     session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 
     gliner2_recognizer = GLiNER2Recognizer(
-        model_name=model_name,
+        model_name="gliner2-PII",
         entity_mapping=entity_mapping,
         threshold=0.5,
         map_location="cpu",
-        load_onnx_model=load_onnx_model,
+        load_onnx_model=True,
     )
 
     analyzer_engine = AnalyzerEngine(
