@@ -1,24 +1,29 @@
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 import logging
 from presidio_analyzer import LocalRecognizer, RecognizerResult, AnalysisExplanation
-
 logger = logging.getLogger("presidio-analyzer")
 
-class GLiNER2Recognizer(LocalRecognizer):
-    """GLiNER2 model based entity recognizer supporting both PyTorch and ONNX runtimes.
 
-    Pour le mode ONNX (load_onnx_model=True), model_name peut être :
-      - un chemin local vers un dossier déjà exporté (contenant gliner2_config.json
-        + les 4 fichiers .onnx : encoder, classifier, span_rep, count_embed)
-      - un repo_id HuggingFace Hub déjà pré-exporté dans ce même format
-        (ex: "lmo3/gliner2-large-v1-onnx", "lmo3/gliner2-multi-v1-onnx")
-
-    Note: certains repos HF nommés "*-onnx" utilisent un format d'export différent
-    (fichier .onnx monolithique unique, pas de gliner2_config.json) et ne sont PAS
-    compatibles avec ce chemin — il faut alors les exporter soi-même via
-    `make onnx-export MODEL=<repo_pytorch>` depuis lmoe/gliner2-onnx.
+def optimize_gliner_label(raw_label: str) -> str:
     """
+    Cleans up any user input to be optimized for GLiNER's text encoder.
+    Example: 
+      'MAC_ADDRESS' -> 'Mac Address'
+      'social-security-number' -> 'Social Security Number'
+      'id' -> 'Id'
+    """
+    # Replace underscores and hyphens with spaces
+    clean_str = re.sub(r'[-_]', ' ', raw_label)
+    # Remove extra spaces
+    clean_str = re.sub(r'\s+', ' ', clean_str).strip()
+    # Convert to Title Case
+    return clean_str.title()
+
+
+class GLiNER2Recognizer(LocalRecognizer):
+    """GLiNER2 model based entity recognizer supporting both PyTorch and ONNX runtimes."""
 
     def __init__(
         self,
@@ -51,7 +56,6 @@ class GLiNER2Recognizer(LocalRecognizer):
         self.model_kwargs = model_kwargs
         self.model = None
 
-        # Contrôle du threading ONNX Runtime — évite l'oversubscription CPU
         self.intra_op_num_threads = intra_op_num_threads
         self.inter_op_num_threads = inter_op_num_threads
 
@@ -63,11 +67,9 @@ class GLiNER2Recognizer(LocalRecognizer):
             context=context,
         )
 
-        # La liste prête et figée des labels GLiNER (extraite des clés de ton dictionnaire)
         self.gliner_labels = list(self.model_to_presidio_entity_mapping.keys())
 
     def load(self) -> None:
-        """Load the GLiNER2 model dynamically depending on load_onnx_model flag."""
         if self.load_onnx_model:
             self._load_onnx()
         else:
@@ -77,13 +79,10 @@ class GLiNER2Recognizer(LocalRecognizer):
         try:
             from gliner2_onnx import GLiNER2ONNXRuntime
         except ImportError as e:
-            raise ImportError(
-                "gliner2-onnx is not installed. Please install it using: pip install gliner2-onnx"
-            ) from e
+            raise ImportError("gliner2-onnx is not installed.") from e
 
         import onnxruntime as ort
 
-        # Map devices to ONNX execution providers
         providers = ["CPUExecutionProvider"]
         if "cuda" in self.map_location.lower():
             providers = ["CUDAExecutionProvider"] + providers
@@ -93,14 +92,11 @@ class GLiNER2Recognizer(LocalRecognizer):
         session_options.inter_op_num_threads = self.inter_op_num_threads
         session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 
-        # Patch _load_model pour injecter session_options
         def patched_load_model(self_runtime, path, providers):
             if not path.exists():
                 from gliner2_onnx.exceptions import ModelNotFoundError
                 raise ModelNotFoundError(f"Model not found: {path}")
-            return ort.InferenceSession(
-                str(path), sess_options=session_options, providers=providers
-            )
+            return ort.InferenceSession(str(path), sess_options=session_options, providers=providers)
 
         GLiNER2ONNXRuntime._load_model = patched_load_model
 
@@ -118,56 +114,28 @@ class GLiNER2Recognizer(LocalRecognizer):
 
     def _load_pytorch(self) -> None:
         import torch
-
-        # Aligne le threading PyTorch sur les mêmes contraintes que l'ONNX
         torch.set_num_threads(self.intra_op_num_threads)
 
         try:
             from gliner2 import GLiNER2
         except ImportError as e:
-            raise ImportError(
-                "gliner2 is not installed. Please install it using: pip install gliner2"
-            ) from e
+            raise ImportError("gliner2 is not installed.") from e
 
         logger.info(f"Loading GLiNER2 PyTorch model from {self.model_name}...")
-        pytorch_kwargs = {
-            k: v for k, v in self.model_kwargs.items()
-            if k not in ("precision",)
-        }
+        pytorch_kwargs = {k: v for k, v in self.model_kwargs.items() if k not in ("precision",)}
         self.model = GLiNER2.from_pretrained(self.model_name, **pytorch_kwargs)
         self.model.to(self.map_location)
 
     def _extract_entities(self, text: str, labels: List[str]):
-        """Appelle le backend chargé et normalise le résultat en tuples (label, start, end, score)"""
         if self.load_onnx_model:
-            predictions = self.model.extract_entities(
-                text=text,
-                labels=labels,
-                threshold=self.threshold,
-            )
+            predictions = self.model.extract_entities(text=text, labels=labels, threshold=self.threshold)
             for pred in predictions:
                 if isinstance(pred, dict):
-                    yield (
-                        pred.get("label"),
-                        pred.get("start", 0),
-                        pred.get("end", 0),
-                        pred.get("score", 1.0),
-                    )
+                    yield (pred.get("label"), pred.get("start", 0), pred.get("end", 0), pred.get("score", 1.0))
                 else:
-                    yield (
-                        getattr(pred, "label", ""),
-                        getattr(pred, "start", 0),
-                        getattr(pred, "end", 0),
-                        getattr(pred, "score", 1.0),
-                    )
+                    yield (getattr(pred, "label", ""), getattr(pred, "start", 0), getattr(pred, "end", 0), getattr(pred, "score", 1.0))
         else:
-            result = self.model.extract_entities(
-                text,
-                labels,
-                threshold=self.threshold,
-                include_confidence=True,
-                include_spans=True,
-            )
+            result = self.model.extract_entities(text, labels, threshold=self.threshold, include_confidence=True, include_spans=True)
             entities_by_label = result.get("entities", {})
             for label, spans in entities_by_label.items():
                 for span in spans:
@@ -182,52 +150,37 @@ class GLiNER2Recognizer(LocalRecognizer):
                         score = 1.0
                     yield (label, start, end, score)
 
-    def analyze(
-        self,
-        text: str,
-        entities: List[str],
-        nlp_artifacts=None,
-    ) -> List[RecognizerResult]:
-        """Analyze text using GLiNER2 with direct mapping from the database."""
-        
-        # 1. Prepare translation maps (Case-insensitive to be safe)
-        # GLiNER to Presidio (e.g., "mac address" -> "MAC_ADDRESS")
+    def analyze(self, text: str, entities: List[str], nlp_artifacts=None) -> List[RecognizerResult]:
         gliner_to_presidio_safe = {k.lower(): v for k, v in self.model_to_presidio_entity_mapping.items()}
-        # Presidio to GLiNER (e.g., "mac_address" -> "Mac Address")
         presidio_to_gliner_safe = {v.lower(): k for k, v in self.model_to_presidio_entity_mapping.items()}
 
-        # 2. Build the exact prompt labels for GLiNER
+        
         labels = list(self.gliner_labels)
         
         if entities:
             for requested_entity in entities:
                 req_lower = requested_entity.lower()
                 
-                # If user requested a Presidio label like "MAC_ADDRESS", translate it back to GLiNER format
+                # If it's a known Presidio label mapping
                 if req_lower in presidio_to_gliner_safe:
                     gliner_target = presidio_to_gliner_safe[req_lower]
                     if gliner_target not in labels:
                         labels.append(gliner_target)
                 else:
-                    # If it's a completely unknown ad-hoc entity, clean it up for GLiNER 
-                    # (e.g. "CUSTOM_ID_NUMBER" -> "Custom Id Number")
-                    clean_label = requested_entity.replace("_", " ").replace("-", " ").title()
-                    if clean_label not in labels:
-                        labels.append(clean_label)
+                    optimized_label = optimize_gliner_label(requested_entity)
+                    if optimized_label not in labels:
+                        labels.append(optimized_label)
         
-        # 3. Extraction brute
+        
         normalized_predictions = self._extract_entities(text, labels)
 
         results = []
         for p_label, p_start, p_end, p_score in normalized_predictions:
             p_label_str = str(p_label)
             
-            # 4. Traduction vers le standard Presidio
-            # If GLiNER returns a label we don't have in DB (from an ad-hoc request), format it like Presidio
             default_presidio_fallback = p_label_str.upper().replace(" ", "_").replace("-", "_")
             presidio_entity = gliner_to_presidio_safe.get(p_label_str.lower(), default_presidio_fallback)
 
-            # 5. Filtrage si l'utilisateur a ciblé des entités spécifiques
             if entities:
                 entities_lower = {e.lower() for e in entities}
                 if (

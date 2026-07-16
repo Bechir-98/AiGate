@@ -1,0 +1,28 @@
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from models.db_models import AppConfig
+
+async def get_active_scanner(db: AsyncSession, redis_client) -> str:
+    cached_scanner = await redis_client.get("config:active_scanner")
+    if cached_scanner:
+        return cached_scanner
+        
+    result = await db.execute(select(AppConfig).where(AppConfig.key == "active_scanner"))
+    config = result.scalars().first()
+    active_scanner = config.value if config else "spacy"
+    
+    await redis_client.set("config:active_scanner", active_scanner)
+    return active_scanner
+
+async def set_active_scanner(db: AsyncSession, redis_client, scanner_name: str):
+    result = await db.execute(select(AppConfig).where(AppConfig.key == "active_scanner"))
+    config = result.scalars().first()
+    
+    if config:
+        config.value = scanner_name
+    else:
+        config = AppConfig(key="active_scanner", value=scanner_name)
+        db.add(config)
+        
+    await db.commit()
+    await redis_client.set("config:active_scanner", scanner_name)

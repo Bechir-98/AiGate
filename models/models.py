@@ -3,7 +3,6 @@ from typing import List, Optional
 
 class Input(BaseModel):
     content: str
-    scan_type: int | None = None
     entities: Optional[List[str]] = None
 
 class ScanResult(BaseModel):
@@ -24,8 +23,17 @@ class AnonymizedItem(BaseModel):
 
 class DeanonymizeRequest(BaseModel):
     anonymized_text: str
-    items: list[AnonymizedItem]
+    items: Optional[list] = None
+
+class LLMDeanonymizeRequest(BaseModel):
+    text: str
 
 class EntityMapping(BaseModel):
     gliner_label:str
     presidio_label:str
+    
+class GatewayResponse(BaseModel):
+    original_prompt: str
+    safe_prompt: str
+    llm_response_raw: str
+    final_response: str

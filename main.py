@@ -12,8 +12,9 @@ from routers.scanner import router as scan_router
 from routers.anonymizer import router as anonymizer_router
 from routers.deanonymizer import router as deanonymizer_router
 from routers.mappings import router as mappings_router
+from routers.chat import router as chat_router
+from routers.config import router as config_router
 
-# Imports utilitaires et Presidio
 from presidio_analyzer import AnalyzerEngine
 from utils.mapping_service import get_active_mapping
 from utils.glinerConfig import create_gliner_analyzer, create_gliner2_analyzer
@@ -62,3 +63,5 @@ app.include_router(scan_router)
 app.include_router(anonymizer_router)
 app.include_router(deanonymizer_router)
 app.include_router(mappings_router)
+app.include_router(chat_router)
+app.include_router(config_router)

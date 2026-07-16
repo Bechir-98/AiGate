@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from typing import Optional
 # Import de ta fonction pour obtenir la session DB
 from database import get_db
-from models.entity_mapping import DBEntityMapping
+from models.db_models import DBEntityMapping
 
 router = APIRouter(prefix="/mappings", tags=["Entity Mappings"])
 

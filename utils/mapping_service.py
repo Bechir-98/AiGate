@@ -2,7 +2,7 @@ import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from redis.asyncio import Redis
-from models.entity_mapping import DBEntityMapping
+from models.db_models import DBEntityMapping
 
 REDIS_MAPPING_KEY = "gliner_entity_mapping"
 CACHE_TTL_SECONDS = 3600
