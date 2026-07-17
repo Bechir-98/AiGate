@@ -4,6 +4,7 @@ from typing import List, Optional
 class Input(BaseModel):
     content: str
     entities: Optional[List[str]] = None
+    session_id: Optional[str] = None
 
 class ScanResult(BaseModel):
     entity_type: str

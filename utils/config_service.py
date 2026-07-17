@@ -3,15 +3,22 @@ from sqlalchemy.future import select
 from models.db_models import AppConfig
 
 async def get_active_scanner(db: AsyncSession, redis_client) -> str:
-    cached_scanner = await redis_client.get("config:active_scanner")
+    cache_key = "config:active_scanner"
+    
+    cached_scanner = await redis_client.get(cache_key)
     if cached_scanner:
-        return cached_scanner
+        if isinstance(cached_scanner, str):
+            return cached_scanner
+        return cached_scanner.decode("utf-8")
         
-    result = await db.execute(select(AppConfig).where(AppConfig.key == "active_scanner"))
+    result = await db.execute(
+        select(AppConfig).where(AppConfig.key == "active_scanner")
+    )
     config = result.scalars().first()
     active_scanner = config.value if config else "spacy"
     
-    await redis_client.set("config:active_scanner", active_scanner)
+    await redis_client.setex(cache_key, 300, active_scanner)
+    
     return active_scanner
 
 async def set_active_scanner(db: AsyncSession, redis_client, scanner_name: str):

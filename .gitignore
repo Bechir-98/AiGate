@@ -18,8 +18,7 @@ uv.lock.bak
 .env.*
 
 # Model weights (large, and you're loading these locally rather than committing them)
-gliner2-PII/onnx/*.onnx
-gliner2-PII/onnx/*.bin
+gliner2-PII
 *.onnx
 *.safetensors
 *.bin
@@ -40,7 +39,8 @@ Thumbs.db
 # FastAPI / logs
 *.log
 
-frontend
-docker-compose.yml
-Dockerfile
-requirements.txt
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/*.local
