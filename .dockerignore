@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+.env
+.git
+.gitignore
+.python-version
+node_modules
+frontend/node_modules
+frontend/dist
+gliner2-PII
+.venv

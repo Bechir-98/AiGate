@@ -10,7 +10,7 @@ from routers.anonymizer import anonymize
 from routers.deanonymizer import deanonymizer_llm
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
-from utils.config_service import get_active_scanner
+from services.config_service import get_active_scanner
 
 load_dotenv()
 router = APIRouter(prefix="/gateway")

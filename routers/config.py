@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from database import get_db
 from models.db_models import AppConfig
-from utils.config_service import get_active_scanner, set_active_scanner
+from services.config_service import get_active_scanner, set_active_scanner
 import json
 
 router = APIRouter(prefix="/config")
@@ -35,8 +35,6 @@ async def get_scanner(
     active_scanner = await get_active_scanner(db, redis_client)
     
     return {"active_scanner": active_scanner}
-
-import json
 
 async def get_active_entities(db: AsyncSession, redis_client) -> list:
     cache_key = "config:active_entities"

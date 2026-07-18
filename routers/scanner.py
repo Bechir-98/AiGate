@@ -1,10 +1,11 @@
 from typing import List, Optional
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends,BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models.models import AnonymizeRequest, ScanResult, Input
-from utils.mapping_service import get_active_mapping
+from services.mapping_service import get_active_mapping
 from utils.glinerConfig import update_analyzer_mappings
+from services.audit_service import audit_detected_labels
 
 router = APIRouter(prefix="/scan")
 
@@ -19,7 +20,7 @@ async def sync_analyzers(request: Request, db: AsyncSession, entities: List[str]
 
 
 @router.post("/spacy", response_model=AnonymizeRequest)
-async def scan_spacy(request: Request, input_data: Input):
+async def scan_spacy(request: Request, input_data: Input,background_tasks: BackgroundTasks,db: AsyncSession = Depends(get_db)):
     # Récupération de l'instance SpaCy depuis le lifespan
     spacy_analyzer = request.app.state.spacy_analyzer
     
@@ -31,11 +32,15 @@ async def scan_spacy(request: Request, input_data: Input):
         ScanResult(entity_type=r.entity_type, start=r.start, end=r.end, score=r.score) 
         for r in result
     ]
+
+    detected_labels = [r.entity_type for r in scan_results]
+    background_tasks.add_task(audit_detected_labels, detected_labels)
+
     return AnonymizeRequest(text=input_data.content, results=scan_results)
 
 
 @router.post("/gliner1", response_model=AnonymizeRequest)
-async def scan_gliner(request: Request, input_data: Input, db: AsyncSession = Depends(get_db)):
+async def scan_gliner(request: Request, input_data: Input, background_tasks: BackgroundTasks,db: AsyncSession = Depends(get_db)):
     await sync_analyzers(request, db, input_data.entities)
     # Récupération de l'instance GLiNER 1 depuis le lifespan
     gliner_analyzer = request.app.state.gliner_analyzer
@@ -49,11 +54,15 @@ async def scan_gliner(request: Request, input_data: Input, db: AsyncSession = De
         ScanResult(entity_type=r.entity_type, start=r.start, end=r.end, score=r.score) 
         for r in result
     ]
+
+    detected_labels = [r.entity_type for r in scan_results]
+    background_tasks.add_task(audit_detected_labels, detected_labels)
+
     return AnonymizeRequest(text=input_data.content, results=scan_results)
 
 
 @router.post("/gliner2", response_model=AnonymizeRequest)
-async def scan_gliner2(request: Request, input_data: Input, db: AsyncSession = Depends(get_db)):
+async def scan_gliner2(request: Request, input_data: Input,background_tasks: BackgroundTasks,db: AsyncSession = Depends(get_db)):
     await sync_analyzers(request, db, input_data.entities)
     # Récupération de l'instance GLiNER 2 depuis le lifespan
     gliner2_analyzer = request.app.state.gliner2_analyzer
@@ -67,4 +76,8 @@ async def scan_gliner2(request: Request, input_data: Input, db: AsyncSession = D
         ScanResult(entity_type=r.entity_type, start=r.start, end=r.end, score=r.score) 
         for r in result
     ]
+
+    detected_labels = [r.entity_type for r in scan_results]
+    background_tasks.add_task(audit_detected_labels, detected_labels)
+
     return AnonymizeRequest(text=input_data.content, results=scan_results)

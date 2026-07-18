@@ -16,7 +16,7 @@ from routers.chat import router as chat_router
 from routers.config import router as config_router
 
 from presidio_analyzer import AnalyzerEngine
-from utils.mapping_service import get_active_mapping
+from services.mapping_service import get_active_mapping
 from utils.glinerConfig import create_gliner_analyzer, create_gliner2_analyzer
 
 load_dotenv()
