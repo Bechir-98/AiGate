@@ -1,7 +1,7 @@
 import os
 import uuid
 import json
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models.models import Input, LLMDeanonymizeRequest, GatewayResponse
@@ -46,6 +46,7 @@ async def save_chat_history(redis_client, session_id: str, history: list):
 async def chat_with_llm(
     request: Request, 
     input_data: Input, 
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
     redis_client = request.app.state.redis
@@ -57,11 +58,11 @@ async def chat_with_llm(
     active_scanner = await get_active_scanner(db, redis_client)
     
     if active_scanner == "gliner1":
-        scan_result = await scan_gliner(request, input_data, db)
+        scan_result = await scan_gliner(request, input_data, background_tasks, db)
     elif active_scanner == "gliner2":
-        scan_result = await scan_gliner2(request, input_data, db)
+        scan_result = await scan_gliner2(request, input_data, background_tasks, db)
     else:
-        scan_result = await scan_spacy(request, input_data)
+        scan_result = await scan_spacy(request, input_data, background_tasks, db)
     
     anonymize_result = await anonymize(scan_result)
     safe_prompt = anonymize_result.anonymized_text

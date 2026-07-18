@@ -8,6 +8,8 @@ redis
 onnxruntime
 
 presidio-analyzer
+presidio-analyzer[gliner]
+presidio_anonymizer
 gliner2
 gliner2-onnx
 openai

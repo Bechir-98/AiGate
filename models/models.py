@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime, timezone
+
 
 class Input(BaseModel):
     content: str
@@ -39,11 +39,3 @@ class GatewayResponse(BaseModel):
     safe_prompt: str
     llm_response_raw: str
     final_response: str
-
-class DetectionAudit(Base):
-    __tablename__ = "detection_audit"
-
-    id = Column(Integer, primary_key=True, index=True)
-    label = Column(String, index=True, nullable=False) # Plus de unique=True ici !
-    count = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

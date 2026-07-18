@@ -1,3 +1,4 @@
+import os
 import onnxruntime as ort
 from typing import Dict, List, Optional
 from presidio_analyzer import AnalyzerEngine
@@ -6,6 +7,8 @@ from utils.null_nlp_engine import NullNlpEngine
 from utils.gliner2Recognizer import GLiNER2Recognizer
 
 def create_gliner_analyzer(entity_mapping: Dict[str, str]):
+    resolved_model_name = os.getenv("GLINER1_MODEL_PATH", "rpeel/glitext-pii-edge")
+
     # Optimize ONNX Runtime for CPU usage to prevent thread context-switching overhead
     session_options = ort.SessionOptions()
     session_options.intra_op_num_threads = 2
@@ -13,7 +16,7 @@ def create_gliner_analyzer(entity_mapping: Dict[str, str]):
     session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
     gliner_recognizer = GLiNERRecognizer(
-        model_name="rpeel/glitext-pii-edge",
+        model_name=resolved_model_name,
         entity_mapping=entity_mapping,
         flat_ner=False,
         multi_label=True,
@@ -35,14 +38,21 @@ def create_gliner_analyzer(entity_mapping: Dict[str, str]):
     
     return analyzer_engine
 
-def create_gliner2_analyzer(entity_mapping: Dict[str, str], load_onnx_model: bool = True, model_name: str = "gliner2-PII"):
+def create_gliner2_analyzer(entity_mapping: Dict[str, str], load_onnx_model: bool = True):
+    local_path = os.getenv("GLINER2_MODEL_PATH", "/app/gliner2-PII")
+    
+    if os.path.exists(local_path) and os.listdir(local_path):
+        resolved_model_name = local_path
+    else:
+        resolved_model_name = "fastino/gliner2-privacy-filter-PII-multi"
+
     session_options = ort.SessionOptions()
     session_options.intra_op_num_threads = 2
     session_options.inter_op_num_threads = 1
     session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 
     gliner2_recognizer = GLiNER2Recognizer(
-        model_name=model_name,
+        model_name=resolved_model_name, 
         entity_mapping=entity_mapping, 
         threshold=0.5,
         map_location="cpu",

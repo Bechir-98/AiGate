@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Request, Depends,BackgroundTasks
+from fastapi import APIRouter, Request, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models.models import AnonymizeRequest, ScanResult, Input
@@ -20,7 +20,7 @@ async def sync_analyzers(request: Request, db: AsyncSession, entities: List[str]
 
 
 @router.post("/spacy", response_model=AnonymizeRequest)
-async def scan_spacy(request: Request, input_data: Input,background_tasks: BackgroundTasks,db: AsyncSession = Depends(get_db)):
+async def scan_spacy(request: Request, input_data: Input, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     # Récupération de l'instance SpaCy depuis le lifespan
     spacy_analyzer = request.app.state.spacy_analyzer
     
@@ -40,7 +40,7 @@ async def scan_spacy(request: Request, input_data: Input,background_tasks: Backg
 
 
 @router.post("/gliner1", response_model=AnonymizeRequest)
-async def scan_gliner(request: Request, input_data: Input, background_tasks: BackgroundTasks,db: AsyncSession = Depends(get_db)):
+async def scan_gliner(request: Request, input_data: Input, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await sync_analyzers(request, db, input_data.entities)
     # Récupération de l'instance GLiNER 1 depuis le lifespan
     gliner_analyzer = request.app.state.gliner_analyzer
@@ -62,7 +62,7 @@ async def scan_gliner(request: Request, input_data: Input, background_tasks: Bac
 
 
 @router.post("/gliner2", response_model=AnonymizeRequest)
-async def scan_gliner2(request: Request, input_data: Input,background_tasks: BackgroundTasks,db: AsyncSession = Depends(get_db)):
+async def scan_gliner2(request: Request, input_data: Input, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await sync_analyzers(request, db, input_data.entities)
     # Récupération de l'instance GLiNER 2 depuis le lifespan
     gliner2_analyzer = request.app.state.gliner2_analyzer

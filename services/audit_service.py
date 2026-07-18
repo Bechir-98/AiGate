@@ -1,5 +1,5 @@
 from collections import Counter
-from models.models import DetectionAudit
+from models.db_models import DetectionAudit
 from database import async_sessionmaker_local
 
 async def audit_detected_labels(labels: list[str]):

@@ -1,14 +1,24 @@
 version: '3.8'
+
 services:
   api:
     build: .
     ports:
       - "8000:8000"
+    volumes:
+      - .:/app                      
+      - /app/__pycache__           
+      - ~/.cache/huggingface:/root/.cache/huggingface 
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - FASTAPI_ENV=${FASTAPI_ENV}
       - LITELLM_API_URL=http://litellm:4000/v1
+      - GLINER1_MODEL_PATH=rpeel/glitext-pii-edge
+      - GLINER2_MODEL_PATH=/app/gliner2-PII
+      - HF_HOME=/root/.cache/huggingface
+      - PYTHONUNBUFFERED=1
     depends_on:
       - postgres_db
       - redis_cache
@@ -44,7 +54,7 @@ services:
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=${LITE_DATABASE_URL}
     command: ["--config","/app/config.yaml","--port", "4000"]
 
 volumes:
