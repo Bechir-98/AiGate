@@ -1,22 +1,25 @@
 import re
-from fastapi import APIRouter, Depends, HTTPException, Request
+import logging
+import asyncio
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from pydantic import BaseModel, ConfigDict
-from typing import Optional
-# Import de ta fonction pour obtenir la session DB
+from pydantic import BaseModel, ConfigDict, Field
+
 from database import get_db
 from models.db_models import DBEntityMapping
 
+logger = logging.getLogger("gateway_mappings")
 router = APIRouter(prefix="/mappings", tags=["Entity Mappings"])
 
 # ==========================================
-# 1. SCHÉMAS PYDANTIC
+# 1. SANITIZED PYDANTIC MODELS
 # ==========================================
 
 class MappingCreate(BaseModel):
-    # L'utilisateur ne fournit QUE le label GLiNER
-    gliner_label: str
+    # Enforces that labels cannot be empty strings or just empty spaces
+    gliner_label: str = Field(..., min_length=1, description="The natural label used by GLiNER models")
 
 class MappingResponse(BaseModel):
     id: int
@@ -27,63 +30,67 @@ class MappingResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class MappingUpdate(BaseModel):
-    gliner_label: Optional[str] = None
+    gliner_label: Optional[str] = Field(None, min_length=1)
     is_active: Optional[bool] = None
 
 # ==========================================
-# 2. LOGIQUE DE FORMATAGE & CACHE
+# 2. HELPER UTILITIES
 # ==========================================
 
 def generate_presidio_label(gliner_label: str) -> str:
-    """
-    Transforme 'Credit Card' ou 'passport-id' en 'CREDIT_CARD' ou 'PASSPORT_ID'.
-    """
+    """Transforms 'Credit Card' or 'passport-id' into clean 'CREDIT_CARD' or 'PASSPORT_ID'."""
     label = gliner_label.strip().upper()
-    # Remplace les espaces et les tirets par des underscores
-    label = re.sub(r'[\s\-]+', '_', label)
-    return label
+    return re.sub(r'[\s\-]+', '_', label)
 
-async def invalidate_redis_cache(request: Request):
+
+async def safe_invalidate_cache(request: Request):
     """
-    Supprime la clé en cache pour forcer FastAPI à recharger les données depuis Postgres.
+    Safely clears the Redis cache. Wraps network operations in a try-except 
+    block to avoid breaking database commits if the cache experiences a blip.
     """
-    redis_client = request.app.state.redis
-    await redis_client.delete("gliner_entity_mapping")
+    try:
+        redis_client = request.app.state.redis
+        await redis_client.delete("gliner_entity_mapping")
+        logger.info("Configuration cache successfully invalidated in Redis.")
+    except Exception as e:
+        # Log the failure but don't crash the route—the database is already secure
+        logger.error(f"Cache invalidation failed down-line: {e}. Stale data may persist until manual flush.")
 
 # ==========================================
-# 3. ROUTES (CRUD)
+# 3. CRITICAL OPERATIONAL ROUTES
 # ==========================================
 
-@router.get("/", response_model=list[MappingResponse])
+@router.get("/", response_model=List[MappingResponse])
 async def list_mappings(db: AsyncSession = Depends(get_db)):
-    """Récupère toutes les entités configurées."""
-    result = await db.execute(select(DBEntityMapping))
+    """Retrieves all active and inactive entities ordered deterministically by ID."""
+    result = await db.execute(select(DBEntityMapping).order_by(DBEntityMapping.id.asc()))
     return result.scalars().all()
 
 
-@router.post("/", response_model=MappingResponse)
+@router.post("/", response_model=MappingResponse, status_code=status.HTTP_201_CREATED)
 async def create_mapping(
     mapping_in: MappingCreate, 
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Crée une nouvelle entité. Le label Presidio est généré automatiquement."""
-    # On garde la casse d'origine pour GLiNER 2, mais on utilise le lower pour les checks DB
+    """Registers a new custom scanning entity and autogenerates its Presidio mapping."""
     gliner_label_original = mapping_in.gliner_label.strip()
     gliner_label_lower = gliner_label_original.lower()
     
-    # Vérifie si l'entité existe déjà (insensible à la casse)
+    # Case-insensitive structural validation check
     result = await db.execute(
         select(DBEntityMapping).where(func.lower(DBEntityMapping.gliner_label) == gliner_label_lower)
     )
     if result.scalars().first():
-        raise HTTPException(status_code=400, detail="Ce label GLiNER existe déjà.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="A mapping rule with this GLiNER label already exists."
+        )
 
-    # Génération automatique du label Presidio
     auto_presidio_label = generate_presidio_label(gliner_label_original)
 
     new_mapping = DBEntityMapping(
-        gliner_label=gliner_label_original,  # Sauvegarde avec la casse naturelle
+        gliner_label=gliner_label_original,
         presidio_label=auto_presidio_label,
         is_active=True
     )
@@ -92,34 +99,9 @@ async def create_mapping(
     await db.commit()
     await db.refresh(new_mapping)
     
-    # Invalide le cache Redis pour prendre en compte le changement
-    await invalidate_redis_cache(request)
-    
+    # Fire cache removal safely
+    await safe_invalidate_cache(request)
     return new_mapping
-
-
-@router.delete("/{mapping_id}")
-async def delete_mapping(
-    mapping_id: int, 
-    request: Request,
-    db: AsyncSession = Depends(get_db)
-):
-    """Supprime définitivement une entité."""
-    result = await db.execute(
-        select(DBEntityMapping).where(DBEntityMapping.id == mapping_id)
-    )
-    mapping = result.scalars().first()
-    
-    if not mapping:
-        raise HTTPException(status_code=404, detail="Mapping introuvable.")
-
-    await db.delete(mapping)
-    await db.commit()
-
-    # Invalide le cache Redis
-    await invalidate_redis_cache(request)
-
-    return {"status": "success", "message": f"Entité {mapping.gliner_label} supprimée."}
 
 
 @router.patch("/{mapping_id}", response_model=MappingResponse)
@@ -129,22 +111,18 @@ async def update_mapping(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Met à jour une entité existante (nom ou statut d'activation)."""
-    # 1. On cherche l'entité
-    result = await db.execute(
-        select(DBEntityMapping).where(DBEntityMapping.id == mapping_id)
-    )
+    """Modifies label details or toggles scanning states for an existing entity."""
+    result = await db.execute(select(DBEntityMapping).where(DBEntityMapping.id == mapping_id))
     mapping = result.scalars().first()
     
     if not mapping:
-        raise HTTPException(status_code=404, detail="Mapping introuvable.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target mapping record not found.")
 
-    # 2. Si l'utilisateur veut modifier le label
     if mapping_in.gliner_label is not None:
         gliner_label_original = mapping_in.gliner_label.strip()
         gliner_label_lower = gliner_label_original.lower()
         
-        # Vérifier que le nouveau nom n'existe pas déjà sur une autre entité (insensible à la casse)
+        # Enforce uniqueness rule across all OTHER rows
         check_exist = await db.execute(
             select(DBEntityMapping).where(
                 (func.lower(DBEntityMapping.gliner_label) == gliner_label_lower) & 
@@ -152,19 +130,39 @@ async def update_mapping(
             )
         )
         if check_exist.scalars().first():
-            raise HTTPException(status_code=400, detail="Ce label GLiNER est déjà utilisé ailleurs.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="This target label is already occupied by another entry."
+            )
             
-        # Mise à jour des deux labels en conservant la casse naturelle
         mapping.gliner_label = gliner_label_original
         mapping.presidio_label = generate_presidio_label(gliner_label_original)
 
-    # 3. Si l'utilisateur veut activer/désactiver l'entité
     if mapping_in.is_active is not None:
         mapping.is_active = mapping_in.is_active
 
-    # 4. Sauvegarde
     await db.commit()
     await db.refresh(mapping)
-    await invalidate_redis_cache(request)
+    await safe_invalidate_cache(request)
 
     return mapping
+
+
+@router.delete("/{mapping_id}")
+async def delete_mapping(
+    mapping_id: int, 
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """Permanently drops an entry from the tracking ecosystem."""
+    result = await db.execute(select(DBEntityMapping).where(DBEntityMapping.id == mapping_id))
+    mapping = result.scalars().first()
+    
+    if not mapping:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target mapping record not found.")
+
+    await db.delete(mapping)
+    await db.commit()
+
+    await safe_invalidate_cache(request)
+    return {"status": "success", "message": f"Entity mapping rule '{mapping.gliner_label}' successfully purged."}

@@ -32,4 +32,5 @@ async def set_active_scanner(db: AsyncSession, redis_client, scanner_name: str):
         db.add(config)
         
     await db.commit()
-    await redis_client.set("config:active_scanner", scanner_name)
+    # Use setex to match the 300s TTL from get_active_scanner — plain set() would cache forever
+    await redis_client.setex("config:active_scanner", 300, scanner_name)

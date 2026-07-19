@@ -1,30 +1,43 @@
 import json
-import redis
 import secrets
+import logging
+import redis
+import os
 from presidio_anonymizer.operators import Operator, OperatorType
 
-import os
-from dotenv import load_dotenv
+# Configure logger for this service
+logger = logging.getLogger("vault_utils")
 
-load_dotenv()
+# Use a connection pool for better performance in concurrent threads
+# and avoid dotenv loading here (let the app init handle config)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+pool = redis.ConnectionPool.from_url(REDIS_URL, decode_responses=True)
+redis_client = redis.Redis(connection_pool=pool)
 
 class RedisVaultOperator(Operator):
+    """Anonymizes PII by swapping text for a secure Redis token."""
+    
     def operate(self, text: str, params: dict = None) -> str:
         params = params or {}
         entity_type = params.get("entity_type", "UNKNOWN")
         token_id = secrets.token_hex(3)
-        token = f"<{entity_type}_{token_id}>" 
+        token = f"<{entity_type}_{token_id}>"
         
         vault_payload = {
             "original_text": text,
             "entity_type": entity_type
         }
         
-        redis_client.set(token, json.dumps(vault_payload), ex=1800)
-        redis_client.hincrby("metrics:detected_entities", entity_type, 1)
-        
+        try:
+            # Store with 30min TTL (Matches your Deanonymizer logic)
+            redis_client.set(token, json.dumps(vault_payload), ex=1800)
+            redis_client.hincrby("metrics:detected_entities", entity_type, 1)
+        except redis.RedisError as e:
+            logger.error(f"Redis Vault Anonymization failed: {e}")
+            # Fallback: if vault fails, we cannot mask the PII safely. 
+            # In a security proxy, it is safer to fail the request than leak data.
+            raise ConnectionError("Security Vault is offline. Cannot process PII.") from e
+            
         return token
 
     def validate(self, params: dict = None) -> None:
@@ -35,19 +48,23 @@ class RedisVaultOperator(Operator):
 
     def operator_type(self) -> OperatorType:
         return OperatorType.Anonymize
-    
 
-# 3. Operator for Retrieving PII (Deanonymization)
+
 class RedisUnvaultOperator(Operator):
+    """Reconstructs PII by retrieving the original value from Redis."""
+    
     def operate(self, text: str, params: dict = None) -> str:
-        # 'text' is the token (e.g., <TOKEN_1234>)
-        vault_payload_str = redis_client.get(text)
+        try:
+            vault_payload_str = redis_client.get(text)
+            if vault_payload_str:
+                vault_payload = json.loads(vault_payload_str)
+                return vault_payload["original_text"]
+        except (redis.RedisError, json.JSONDecodeError) as e:
+            logger.error(f"Redis Vault Retrieval failed for token {text}: {e}")
+            # If we fail to retrieve, returning the raw token is safer than crashing,
+            # but in production you might want to flag this as a critical audit event.
+            return text
         
-        if vault_payload_str:
-            vault_payload = json.loads(vault_payload_str)
-            return vault_payload["original_text"]
-        
-        # Fallback if token is missing
         return text 
 
     def validate(self, params: dict = None) -> None:

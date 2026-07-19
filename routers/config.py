@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from pydantic import BaseModel
 from database import get_db
 from models.db_models import AppConfig

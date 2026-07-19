@@ -20,9 +20,12 @@ services:
       - HF_HOME=/root/.cache/huggingface
       - PYTHONUNBUFFERED=1
     depends_on:
-      - postgres_db
-      - redis_cache
-      - litellm
+      postgres_db:
+        condition: service_healthy
+      redis_cache:
+        condition: service_healthy
+      litellm:
+        condition: service_started
 
   postgres_db:
     image: postgres:15-alpine
@@ -35,6 +38,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
 
   redis_cache:
     image: redis:7-alpine
@@ -43,6 +51,11 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
 
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
