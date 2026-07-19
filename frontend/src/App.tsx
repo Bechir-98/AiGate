@@ -5,6 +5,8 @@ import {
   createMapping,
   updateMapping,
   removeMapping,
+  getGlobalScanner,
+  setGlobalScanner,
   type Mapping,
 } from './api'
 import Sidebar from './Sidebar'
@@ -36,6 +38,7 @@ export default function App() {
   const [mappings, setMappings] = useState<Mapping[]>([])
   const [newLabel, setNewLabel] = useState('')
   const [mappingsError, setMappingsError] = useState<string | null>(null)
+  const [activeScanner, setActiveScanner] = useState('spacy')
 
   const loadMappings = useCallback(async () => {
     setMappingsError(null)
@@ -49,7 +52,17 @@ export default function App() {
 
   useEffect(() => {
     loadMappings()
+    getGlobalScanner().then(({ data }) => setActiveScanner(data.active_scanner)).catch(() => {})
   }, [loadMappings])
+
+  const handleScannerChange = async (scanner: string) => {
+    try {
+      await setGlobalScanner(scanner)
+      setActiveScanner(scanner)
+    } catch (e) {
+      alert('Error: ' + (e as Error).message)
+    }
+  }
 
   const handleSend = async (text: string) => {
     const userMsg: Message = {
@@ -130,6 +143,8 @@ export default function App() {
         onToggleMapping={handleToggleMapping}
         onDeleteMapping={handleDeleteMapping}
         error={mappingsError}
+        activeScanner={activeScanner}
+        onScannerChange={handleScannerChange}
       />
       <button
         className="sidebar-toggle-btn"

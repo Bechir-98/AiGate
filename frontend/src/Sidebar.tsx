@@ -1,6 +1,8 @@
 import { type Mapping } from './api'
 import './Sidebar.css'
 
+const SCANNERS = ['spacy', 'gliner1', 'gliner2'] as const
+
 interface SidebarProps {
   open: boolean
   onToggle: () => void
@@ -11,6 +13,8 @@ interface SidebarProps {
   onToggleMapping: (m: Mapping) => void
   onDeleteMapping: (id: number) => void
   error: string | null
+  activeScanner: string
+  onScannerChange: (scanner: string) => void
 }
 
 export default function Sidebar({
@@ -22,6 +26,8 @@ export default function Sidebar({
   onToggleMapping,
   onDeleteMapping,
   error,
+  activeScanner,
+  onScannerChange,
 }: SidebarProps) {
   return (
     <div className={`sidebar ${open ? 'open' : 'closed'}`}>
@@ -30,6 +36,20 @@ export default function Sidebar({
           <h2>Entity Mappings</h2>
         </div>
         <div className="sidebar-body">
+          <div className="sidebar-section">
+            <div className="sidebar-section-title">Detection Engine</div>
+            <div className="scanner-group">
+              {SCANNERS.map((s) => (
+                <button
+                  key={s}
+                  className={`scanner-btn ${activeScanner === s ? 'active' : ''}`}
+                  onClick={() => onScannerChange(s)}
+                >
+                  {s === 'spacy' ? 'SpaCy' : s === 'gliner1' ? 'GLiNER v1' : 'GLiNER v2'}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="sidebar-section">
             <div className="sidebar-section-title">GLiNER → Presidio</div>
             {error && <div className="sidebar-error">{error}</div>}

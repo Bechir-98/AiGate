@@ -258,6 +258,37 @@
   cursor: not-allowed;
 }
 
+.scanner-group {
+  display: flex;
+  gap: 4px;
+}
+
+.scanner-btn {
+  flex: 1;
+  padding: 7px 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.scanner-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.scanner-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .sidebar-error {
   font-size: 0.72rem;
   color: var(--danger);

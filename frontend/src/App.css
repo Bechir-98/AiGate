@@ -1,19 +1,19 @@
 :root {
-  --bg: #f7f5f0;
-  --surface: #ffffff;
-  --surface-secondary: #f0ece6;
-  --text-primary: #2c2416;
-  --text-secondary: #8a7e6b;
-  --text-muted: #b8aea0;
-  --border: #e5ddd4;
-  --border-light: #f0ece6;
-  --accent: #c65d47;
-  --accent-hover: #b04e3a;
-  --accent-navy: #2c3e5c;
-  --danger: #c0392b;
-  --code-bg: #f0ece6;
-  --shadow: rgba(44, 36, 22, 0.06);
-  --shadow-strong: rgba(44, 36, 22, 0.1);
+  --bg: #1a1a1e;
+  --surface: #25252b;
+  --surface-secondary: #2e2e35;
+  --text-primary: #e8e6e3;
+  --text-secondary: #9f9ba6;
+  --text-muted: #6b6773;
+  --border: #3a3a42;
+  --border-light: #33333b;
+  --accent: #e0705a;
+  --accent-hover: #d45f48;
+  --accent-navy: #7a9ec9;
+  --danger: #e74c3c;
+  --code-bg: #2e2e35;
+  --shadow: rgba(0, 0, 0, 0.25);
+  --shadow-strong: rgba(0, 0, 0, 0.4);
   --sidebar-w: 280px;
   --header-h: 56px;
 }
