@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # --- AI Engine Model Paths ---
     GLINER1_MODEL_PATH: str = "rpeel/glitext-pii-edge"
     GLINER2_MODEL_PATH: str = "/app/gliner2-PII"
+    PROMPT_GUARD_MODEL_ID: str = "gravitee-io/Llama-Prompt-Guard-2-86M-onnx"
+    #PROMPT_GUARD_MODEL_ID: str = "meta-llama/Llama-Prompt-Guard-2-86M"
+    TOXIC_BERT_MODEL_ID: str = "unitary/toxic-bert"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

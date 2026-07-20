@@ -12,6 +12,7 @@ export default defineConfig({
       '/mappings': 'http://localhost:8000',
       '/gateway': 'http://localhost:8000',
       '/config': 'http://localhost:8000',
+      '/regex-patterns': 'http://localhost:8000',
     },
   },
 })

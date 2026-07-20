@@ -9,10 +9,10 @@ from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.models import Input, GatewayResponse
-from routers.scanner import scan_spacy, scan_gliner, scan_gliner2
-from routers.anonymizer import anonymize
+from routers.config import get_active_scanners
 from routers.deanonymizer import deanonymize_text
-from services.config_service import get_active_scanner
+from scanners.pipeline import security_pipeline
+from scanners.scanner import ScannerStage
 
 logger = logging.getLogger("gateway_service")
 
@@ -20,7 +20,7 @@ logger = logging.getLogger("gateway_service")
 # INFRASTRUCTURE & LLM DRIVERS
 # ==========================================
 
-LITELLM_API_URL = os.getenv("LITELLM_API_URL", "http://litellm:4000/v1")
+LITELLM_API_URL = os.getenv("LITELLM_API_URL", "http://localhost:4000/v1")
 
 client = AsyncOpenAI(
     base_url=LITELLM_API_URL,
@@ -76,32 +76,32 @@ async def process_gateway_chat(
     db: AsyncSession
 ) -> GatewayResponse:
     """
-    Executes the full anonymization, LLM proxy, and deanonymization lifecycle.
+    Executes the full security scanning, PII tokenization, LLM proxy, 
+    output guardrails, and deanonymization lifecycle.
     """
     redis_client = request.app.state.redis
     session_id = input_data.session_id or f"sess_{uuid.uuid4().hex[:12]}"
 
-    # 1. Dynamic Engine Routing & Scanning Phase
-    active_scanner = await get_active_scanner(db, redis_client)
+    # 1. Fetch Active Scanners List (from Redis / PostgreSQL)
+    active_scanners = await get_active_scanners(db, redis_client)
 
+    # 2. INPUT SECURITY & PII ANONYMIZATION PIPELINE
+    # Executes active input scanners in sequence (e.g. PromptGuard -> PII Anonymizer)
     try:
-        if active_scanner == "gliner1":
-            scan_result_payload = await scan_gliner(request, input_data, background_tasks, db)
-        elif active_scanner == "gliner2":
-            scan_result_payload = await scan_gliner2(request, input_data, background_tasks, db)
-        else:
-            scan_result_payload = await scan_spacy(request, input_data, background_tasks, db)
+        safe_prompt, input_telemetry = await security_pipeline.execute_stage(
+            text=input_data.content,
+            stage=ScannerStage.INPUT,
+            active_scanners=active_scanners,
+            db=db,
+            background_tasks=background_tasks,
+            app_state=request.app.state,
+            entities=getattr(input_data, "entities", None)
+        )
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Scanning engine fault: {e}")
-        raise HTTPException(status_code=500, detail="Data scanning phase failed.")
-
-    # 2. Vault Tokenization Phase
-    try:
-        anonymize_result = await anonymize(scan_result_payload)
-        safe_prompt = anonymize_result.anonymized_text
-    except Exception as e:
-        logger.error(f"Anonymization fault: {e}")
-        raise HTTPException(status_code=500, detail="Data tokenization phase failed.")
+        logger.error(f"Input security pipeline fault: {e}")
+        raise HTTPException(status_code=500, detail="Data scanning and sanitization phase failed.")
 
     # 3. Contextual History Loading
     history = await get_chat_history(redis_client, session_id)
@@ -129,7 +129,7 @@ async def process_gateway_chat(
             messages=messages
         )
         if not response.choices:
-            raise ValueError("Upstream model returned an empty response array.")
+            raise ValueError("Upstream model returned an empty choice array.")
         llm_response_raw = response.choices[0].message.content or ""
     except Exception as exc:
         logger.error(f"Upstream execution fault: {exc}")
@@ -138,14 +138,31 @@ async def process_gateway_chat(
             detail=f"LiteLLM Network request failed: {exc}"
         )
 
-    # 5. Secure History Persistence
+    # 5. OUTPUT SECURITY GUARDRAILS PIPELINE
+    # Executes active output scanners (e.g. Toxicity, Output PII, etc.)
+    try:
+        checked_response, output_telemetry = await security_pipeline.execute_stage(
+            text=llm_response_raw,
+            stage=ScannerStage.OUTPUT,
+            active_scanners=active_scanners,
+            db=db,
+            background_tasks=background_tasks,
+            app_state=request.app.state
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Output security pipeline fault: {e}")
+        raise HTTPException(status_code=500, detail="Output security validation phase failed.")
+
+    # 6. Secure History Persistence
     history.append({"role": "user", "content": safe_prompt})
     history.append({"role": "assistant", "content": llm_response_raw})
     await save_chat_history(redis_client, session_id, history)
 
-    # 6. Reverse De-Anonymization Phase
+    # 7. Reverse De-Anonymization Phase
     try:
-        final_response = await deanonymize_text(llm_response_raw, redis_client)
+        final_response = await deanonymize_text(checked_response, redis_client)
     except Exception as e:
         logger.error(f"Reconstruction fault: {e}")
         raise HTTPException(status_code=500, detail="Final text reconstruction phase failed.")

@@ -101,6 +101,13 @@ export default function Chat({ messages, onSend, onClear, loading, sessionId }: 
 
               {msg.role === 'user' ? (
                 <div className="msg-content">{msg.content}</div>
+              ) : msg.block ? (
+                <div className="msg-block">
+                  <div className="msg-block-icon">⚠</div>
+                  <div className="msg-block-header">Request Blocked</div>
+                  <div className="msg-block-scanner">{msg.block.scanner}</div>
+                  <div className="msg-block-reason">{msg.block.reason}</div>
+                </div>
               ) : (
                 <>
                   {showTabs(msg) && (

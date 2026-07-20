@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import logging
 from presidio_analyzer import LocalRecognizer, RecognizerResult, AnalysisExplanation
+from scanners.scanner import request_entities_var
+
 logger = logging.getLogger("presidio-analyzer")
 
 
@@ -68,6 +70,18 @@ class GLiNER2Recognizer(LocalRecognizer):
         )
 
         self.gliner_labels = list(self.model_to_presidio_entity_mapping.keys())
+
+    @property
+    def supported_entities(self) -> List[str]:
+        base_entities = list(set(self.model_to_presidio_entity_mapping.values()))
+        req_entities = request_entities_var.get()
+        if req_entities:
+            return list(set(base_entities + req_entities))
+        return base_entities
+
+    @supported_entities.setter
+    def supported_entities(self, value: List[str]) -> None:
+        pass
 
     def load(self) -> None:
         if self.load_onnx_model:

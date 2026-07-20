@@ -17,7 +17,7 @@ async function request<T>(
   return { data, latency: Math.round(performance.now() - start) }
 }
 
-export interface ScanResult {
+export interface PIIScanResult {
   entity_type: string
   start: number
   end: number
@@ -43,13 +43,13 @@ export async function scanText(
   engine: string,
   entities?: string[],
 ) {
-  return request<{ text: string; results: ScanResult[] }>(`/scan/${engine}`, {
+  return request<{ text: string; results: PIIScanResult[] }>(`/scan/${engine}`, {
     method: 'POST',
     body: JSON.stringify({ content, entities }),
   })
 }
 
-export async function anonymizeText(text: string, results: ScanResult[]) {
+export async function anonymizeText(text: string, results: PIIScanResult[]) {
   return request<{ anonymized_text: string; items: AnonymizedItem[] }>(
     '/anonymize',
     {
@@ -71,6 +71,7 @@ export interface GatewayResponse {
   safe_prompt: string
   llm_response_raw: string
   final_response: string
+  session_id: string
 }
 
 export async function chatWithLLM(
@@ -112,14 +113,55 @@ export async function removeMapping(id: number) {
 }
 
 export async function getGlobalScanner() {
-  return request<{ active_scanner: string }>('/config/scanner', {
+  return request<{ active_scanners: string[] }>('/config/scanners', {
     method: 'GET',
   })
 }
 
-export async function setGlobalScanner(scanner_name: string) {
-  return request<{ message: string }>('/config/scanner', {
+export async function setGlobalScanner(scanner_names: string[]) {
+  return request<{ message: string; active_scanners: string[] }>('/config/scanners', {
     method: 'POST',
-    body: JSON.stringify({ scanner_name }),
+    body: JSON.stringify({ active_scanners: scanner_names }),
+  })
+}
+
+export interface RegexPattern {
+  id: number
+  name: string
+  pattern: string
+  entity_type: string
+  score: number
+  is_active: boolean
+}
+
+export async function fetchRegexPatterns() {
+  return request<RegexPattern[]>('/regex-patterns/', { method: 'GET' })
+}
+
+export async function createRegexPattern(
+  name: string,
+  pattern: string,
+  entity_type: string,
+  score: number,
+) {
+  return request<RegexPattern>('/regex-patterns/', {
+    method: 'POST',
+    body: JSON.stringify({ name, pattern, entity_type, score }),
+  })
+}
+
+export async function updateRegexPattern(
+  id: number,
+  data: { pattern?: string; score?: number; is_active?: boolean },
+) {
+  return request<RegexPattern>(`/regex-patterns/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function removeRegexPattern(id: number) {
+  return request<{ status: string; message: string }>(`/regex-patterns/${id}`, {
+    method: 'DELETE',
   })
 }

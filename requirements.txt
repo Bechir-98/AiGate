@@ -16,3 +16,4 @@ gliner2-onnx
 openai
 pydantic-settings>=2.0.0
 httpx
+optimum[onnxruntime]

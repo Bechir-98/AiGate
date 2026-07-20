@@ -16,7 +16,7 @@ class Input(BaseModel):
 # 2. SCANNING & ANONYMIZATION PIPELINE SCHEMAS
 # ==========================================
 
-class ScanResult(BaseModel):
+class PIIScanResult(BaseModel):
     """Structural boundary footprint of a discovered piece of PII."""
     entity_type: str = Field(..., description="The classification label (e.g., PHONE_NUMBER)")
     start: int = Field(..., ge=0, description="Character start index offset")
@@ -30,7 +30,7 @@ class AnonymizeRequest(BaseModel):
     Serves as the output of the scanner and the input to the anonymizer.
     """
     text: str = Field(..., description="The original raw text string")
-    results: list[ScanResult] = Field(default_factory=list, description="Collection of identified PII spans")
+    results: list[PIIScanResult] = Field(default_factory=list, description="Collection of identified PII spans")
 
 
 class AnonymizedItem(BaseModel):

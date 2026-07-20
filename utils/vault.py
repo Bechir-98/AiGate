@@ -10,9 +10,16 @@ logger = logging.getLogger("vault_utils")
 
 # Use a connection pool for better performance in concurrent threads
 # and avoid dotenv loading here (let the app init handle config)
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-pool = redis.ConnectionPool.from_url(REDIS_URL, decode_responses=True)
-redis_client = redis.Redis(connection_pool=pool)
+_redis_client = None
+
+def get_redis_client() -> redis.Redis:
+    global _redis_client
+    if _redis_client is None:
+        from config import settings
+        redis_url = getattr(settings, "REDIS_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+        pool = redis.ConnectionPool.from_url(redis_url, decode_responses=True)
+        _redis_client = redis.Redis(connection_pool=pool)
+    return _redis_client
 
 class RedisVaultOperator(Operator):
     """Anonymizes PII by swapping text for a secure Redis token."""
@@ -30,8 +37,9 @@ class RedisVaultOperator(Operator):
         
         try:
             # Store with 30min TTL (Matches your Deanonymizer logic)
-            redis_client.set(token, json.dumps(vault_payload), ex=1800)
-            redis_client.hincrby("metrics:detected_entities", entity_type, 1)
+            client = get_redis_client()
+            client.set(token, json.dumps(vault_payload), ex=1800)
+            client.hincrby("metrics:detected_entities", entity_type, 1)
         except redis.RedisError as e:
             logger.error(f"Redis Vault Anonymization failed: {e}")
             # Fallback: if vault fails, we cannot mask the PII safely. 
@@ -55,7 +63,8 @@ class RedisUnvaultOperator(Operator):
     
     def operate(self, text: str, params: dict = None) -> str:
         try:
-            vault_payload_str = redis_client.get(text)
+            client = get_redis_client()
+            vault_payload_str = client.get(text)
             if vault_payload_str:
                 vault_payload = json.loads(vault_payload_str)
                 return vault_payload["original_text"]

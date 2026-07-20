@@ -67,7 +67,7 @@ services:
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - DATABASE_URL=${LITE_DATABASE_URL}
+      - DATABASE_URL=postgresql://presidio_user:securepassword123@postgres_db:5432/aigate
     command: ["--config","/app/config.yaml","--port", "4000"]
 
 volumes:

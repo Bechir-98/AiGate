@@ -5,12 +5,22 @@ import {
   createMapping,
   updateMapping,
   removeMapping,
+  fetchRegexPatterns,
+  createRegexPattern,
+  updateRegexPattern,
+  removeRegexPattern,
   getGlobalScanner,
   setGlobalScanner,
   type Mapping,
+  type RegexPattern,
 } from './api'
 import Sidebar from './Sidebar'
 import Chat from './Chat'
+
+export interface SecurityBlock {
+  scanner: string
+  reason: string
+}
 
 export interface Message {
   id: string
@@ -19,6 +29,7 @@ export interface Message {
   safe_prompt?: string
   llm_response_raw?: unknown
   timestamp: number
+  block?: SecurityBlock
 }
 
 function generateId() {
@@ -27,6 +38,12 @@ function generateId() {
 
 function generateSessionId() {
   return 'sess_' + (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 14))
+}
+
+function parseBlockError(msg: string): SecurityBlock | undefined {
+  const match = msg.match(/Security Policy Violation \[([^\]]+)\]:\s*(.+)/)
+  if (!match) return
+  return { scanner: match[1], reason: match[2].replace(/^Security Policy Violation:\s*|^Policy Violation:\s*/i, '') }
 }
 
 export default function App() {
@@ -38,7 +55,8 @@ export default function App() {
   const [mappings, setMappings] = useState<Mapping[]>([])
   const [newLabel, setNewLabel] = useState('')
   const [mappingsError, setMappingsError] = useState<string | null>(null)
-  const [activeScanner, setActiveScanner] = useState('spacy')
+  const [regexPatterns, setRegexPatterns] = useState<RegexPattern[]>([])
+  const [activeScanners, setActiveScanners] = useState<string[]>(['spacy'])
 
   const loadMappings = useCallback(async () => {
     setMappingsError(null)
@@ -50,15 +68,29 @@ export default function App() {
     }
   }, [])
 
+  const loadRegexPatterns = useCallback(async () => {
+    try {
+      const { data } = await fetchRegexPatterns()
+      setRegexPatterns(data)
+    } catch (e) {
+      console.error('Failed to load regex patterns:', e)
+    }
+  }, [])
+
   useEffect(() => {
     loadMappings()
-    getGlobalScanner().then(({ data }) => setActiveScanner(data.active_scanner)).catch(() => {})
-  }, [loadMappings])
+    loadRegexPatterns()
+    getGlobalScanner().then(({ data }) => setActiveScanners(data.active_scanners)).catch(() => {})
+  }, [loadMappings, loadRegexPatterns])
 
   const handleScannerChange = async (scanner: string) => {
+    const next = activeScanners.includes(scanner)
+      ? activeScanners.filter((s) => s !== scanner)
+      : [...activeScanners, scanner]
+    if (next.length === 0) return
     try {
-      await setGlobalScanner(scanner)
-      setActiveScanner(scanner)
+      await setGlobalScanner(next)
+      setActiveScanners(next)
     } catch (e) {
       alert('Error: ' + (e as Error).message)
     }
@@ -85,13 +117,20 @@ export default function App() {
         llm_response_raw: data.llm_response_raw,
         timestamp: Date.now(),
       }
+
+      if (data.session_id && data.session_id !== sessionId) {
+        console.debug('Session ID updated by server:', data.session_id)
+      }
       setMessages((prev) => [...prev, assistantMsg])
     } catch (e: unknown) {
+      const raw = (e as Error).message
+      const block = parseBlockError(raw)
       const errMsg: Message = {
         id: generateId(),
         role: 'assistant',
-        content: 'Error: ' + (e as Error).message,
+        content: block ? '' : 'Error: ' + raw,
         timestamp: Date.now(),
+        block,
       }
       setMessages((prev) => [...prev, errMsg])
     }
@@ -131,6 +170,50 @@ export default function App() {
     }
   }
 
+  const handleAddRegexPattern = async (
+    name: string,
+    pattern: string,
+    entity_type: string,
+    score: number,
+  ) => {
+    try {
+      await createRegexPattern(name, pattern, entity_type, score)
+      await loadRegexPatterns()
+    } catch (e: unknown) {
+      alert('Error: ' + (e as Error).message)
+    }
+  }
+
+  const handleToggleRegexPattern = async (p: RegexPattern) => {
+    try {
+      await updateRegexPattern(p.id, { is_active: !p.is_active })
+      await loadRegexPatterns()
+    } catch (e: unknown) {
+      alert('Error: ' + (e as Error).message)
+    }
+  }
+
+  const handleUpdateRegexPattern = async (
+    id: number,
+    data: { pattern?: string; score?: number },
+  ) => {
+    try {
+      await updateRegexPattern(id, data)
+      await loadRegexPatterns()
+    } catch (e: unknown) {
+      alert('Error: ' + (e as Error).message)
+    }
+  }
+
+  const handleDeleteRegexPattern = async (id: number) => {
+    try {
+      await removeRegexPattern(id)
+      await loadRegexPatterns()
+    } catch (e: unknown) {
+      alert('Error: ' + (e as Error).message)
+    }
+  }
+
   return (
     <div className="app">
       <Sidebar
@@ -143,8 +226,13 @@ export default function App() {
         onToggleMapping={handleToggleMapping}
         onDeleteMapping={handleDeleteMapping}
         error={mappingsError}
-        activeScanner={activeScanner}
+        activeScanners={activeScanners}
         onScannerChange={handleScannerChange}
+        regexPatterns={regexPatterns}
+        onAddRegexPattern={handleAddRegexPattern}
+        onToggleRegexPattern={handleToggleRegexPattern}
+        onUpdateRegexPattern={handleUpdateRegexPattern}
+        onDeleteRegexPattern={handleDeleteRegexPattern}
       />
       <button
         className="sidebar-toggle-btn"

@@ -1,66 +1,104 @@
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel
 from database import get_db
 from models.db_models import AppConfig
-from services.config_service import get_active_scanner, set_active_scanner
 import json
 
-router = APIRouter(prefix="/config")
+router = APIRouter(prefix="/config", tags=["Configuration"])
+
+VALID_SCANNERS = {"spacy", "gliner1", "gliner2", "prompt_guard", "toxicity", "custom_regex"}
 
 class ScannerChoice(BaseModel):
-    scanner_name: str 
+    active_scanners: list[str]
 
-@router.post("/scanner")
-async def update_scanner(
+async def set_active_scanners(db: AsyncSession, redis_client, scanners: list[str]):
+    """Saves the active scanner list to PostgreSQL and updates Redis cache."""
+    cache_key = "config:active_scanners"
+    json_val = json.dumps(scanners)
+    
+    # 1. Save to Database
+    result = await db.execute(select(AppConfig).where(AppConfig.key == "active_scanners"))
+    config_entry = result.scalars().first()
+    
+    if config_entry:
+        config_entry.value = json_val
+    else:
+        new_entry = AppConfig(key="active_scanners", value=json_val)
+        db.add(new_entry)
+        
+    await db.commit()
+    
+    # 2. Update Redis Cache
+    await redis_client.setex(cache_key, 300, json_val)
+
+async def get_active_scanners(db: AsyncSession, redis_client) -> list[str]:
+    """Fetches the active scanner list from Redis, falling back to PostgreSQL."""
+    cache_key = "config:active_scanners"
+    
+    # 1. Try Redis Cache
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached if isinstance(cached, str) else cached.decode("utf-8"))
+        
+    # 2. Cache Miss: Fetch from PostgreSQL
+    result = await db.execute(select(AppConfig).where(AppConfig.key == "active_scanners"))
+    config = result.scalars().first()
+    
+    if config and config.value:
+        active_scanners = json.loads(config.value)
+    else:
+        # Default fallback if nothing is configured
+        active_scanners = ["spacy"] 
+        
+    # 3. Save to Redis
+    await redis_client.setex(cache_key, 300, json.dumps(active_scanners))
+    return active_scanners
+
+@router.post("/scanners")
+async def update_scanners(
     choice: ScannerChoice, 
     request: Request, 
     db: AsyncSession = Depends(get_db)
 ):
-    redis_client = request.app.state.redis
-    
-    if choice.scanner_name not in ["spacy", "gliner1", "gliner2"]:
-        return {"error": "Invalid scanner name. Choose spacy, gliner1, or gliner2."}
+    # Validate requested scanners against allowed set
+    invalid = set(choice.active_scanners) - VALID_SCANNERS
+    if invalid:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid scanners provided: {invalid}. Allowed: {VALID_SCANNERS}"
+        )
         
-    await set_active_scanner(db, redis_client, choice.scanner_name)
+    redis_client = request.app.state.redis
+    await set_active_scanners(db, redis_client, choice.active_scanners)
     
-    return {"message": f"Global scanner updated to {choice.scanner_name}"}
+    return {"message": "Global scanners updated successfully", "active_scanners": choice.active_scanners}
 
-@router.get("/scanner")
-async def get_scanner(
+@router.get("/scanners")
+async def get_scanners(
     request: Request, 
     db: AsyncSession = Depends(get_db)
 ):
     redis_client = request.app.state.redis
-    active_scanner = await get_active_scanner(db, redis_client)
-    
-    return {"active_scanner": active_scanner}
+    active_scanners = await get_active_scanners(db, redis_client)
+    return {"active_scanners": active_scanners}
 
-async def get_active_entities(db: AsyncSession, redis_client) -> list:
+
+async def get_active_entities(db: AsyncSession, redis_client) -> list[str]:
     cache_key = "config:active_entities"
     
-    # 1. Try fetching from Redis Cache
     cached_entities = await redis_client.get(cache_key)
     if cached_entities:
-        if isinstance(cached_entities, bytes):
-            cached_entities = cached_entities.decode("utf-8")
-        return json.loads(cached_entities)
+        return json.loads(cached_entities if isinstance(cached_entities, str) else cached_entities.decode("utf-8"))
         
-    # 2. Cache Miss: Fetch from Postgres
-    result = await db.execute(
-        select(AppConfig).where(AppConfig.key == "active_entities")
-    )
+    result = await db.execute(select(AppConfig).where(AppConfig.key == "active_entities"))
     config = result.scalars().first()
     
-    # Parse the DB string (e.g., '["PERSON", "EMAIL"]') into a Python list
     if config and config.value:
         active_entities = json.loads(config.value)
     else:
-        # Absolute fallback if the database is empty
         active_entities = ["PERSON", "ORGANIZATION", "LOCATION", "EMAIL"]
     
-    # 3. Save to Redis with a 5-minute (300s) TTL
     await redis_client.setex(cache_key, 300, json.dumps(active_entities))
-    
     return active_entities
