@@ -5,10 +5,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import redis.asyncio as aioredis
 
-# Transformers & ONNX
-from transformers import pipeline as hf_pipeline, AutoTokenizer
-from optimum.onnxruntime import ORTModelForSequenceClassification
-
 from config import settings
 from database import engine, Base, async_sessionmaker_local
 
@@ -24,6 +20,7 @@ from routers.regex_patterns import router as regex_patterns_router
 # Services & PII Analyzers
 from presidio_analyzer import AnalyzerEngine
 from services.mapping_service import get_active_mapping
+from services.model_loader import load_text_classification_pipeline
 from utils.glinerConfig import create_gliner_analyzer, create_gliner2_analyzer
 
 # Security Scanners Pipeline
@@ -31,9 +28,11 @@ from scanners.pipeline import security_pipeline
 from scanners.input_scanners.prompt_guard import PromptGuardScanner
 from scanners.input_scanners.toxicity_scanner import ToxicityScanner
 from scanners.input_scanners.regex_scanner import CustomRegexScanner
-
 from scanners.scanner import ScannerStage
 from scanners.input_scanners.pii_scanner import SpacyScanner, Gliner1Scanner, Gliner2Scanner
+
+if settings.HF_TOKEN:
+    os.environ["HF_TOKEN"] = settings.HF_TOKEN
 
 logging.basicConfig(
     level=logging.INFO if settings.FASTAPI_ENV == "production" else logging.DEBUG,
@@ -68,50 +67,32 @@ async def lifespan(app: FastAPI):
             logger.info("Preloading Spacy/Presidio Natural Language Engine...")
             app.state.spacy_analyzer = AnalyzerEngine()
 
-            # Note: No custom regex injection needed here for Approach B. 
-            # The CustomRegexScanner fetches them dynamically from Redis!
-
-            logger.info("Preloading GLiNER Edge and Deep Context models into system RAM...")
+            logger.info("Preloading GLiNER Edge and Deep Context models...")
             app.state.gliner_analyzer = create_gliner_analyzer(entity_mapping=mapping)
             os.environ.setdefault("GLINER2_MODEL_PATH", settings.GLINER2_MODEL_PATH)
             app.state.gliner2_analyzer = create_gliner2_analyzer(entity_mapping=mapping)
 
-            # 2. Load Security Guardrails
-            pg_model_id = settings.PROMPT_GUARD_MODEL_ID
-            logger.info(f"Loading PromptGuard Model: {pg_model_id}...")
-            pg_tokenizer = AutoTokenizer.from_pretrained(pg_model_id)
-            
-            if "onnx" in pg_model_id.lower():
-                logger.info("Initializing PromptGuard ONNX model for CPU inference...")
-                pg_model = ORTModelForSequenceClassification.from_pretrained(pg_model_id)
-            else:
-                logger.info("Initializing PromptGuard standard PyTorch model...")
-                from transformers import AutoModelForSequenceClassification
-                pg_model = AutoModelForSequenceClassification.from_pretrained(pg_model_id)
-            
-            pg_pipe = hf_pipeline(
-                "text-classification", 
-                model=pg_model, 
-                tokenizer=pg_tokenizer,
-                device=-1
+            # 2. Load Security Guardrails using the Model Loader Service
+            pg_pipe = load_text_classification_pipeline(
+                model_id=settings.PROMPT_GUARD_MODEL_ID,
+                hf_token=settings.HF_TOKEN,
+                is_gated=("meta-llama" in settings.PROMPT_GUARD_MODEL_ID)
             )
-            
-            logger.info(f"Loading Toxic-BERT Model (Output Security): {settings.TOXIC_BERT_MODEL_ID}...")
-            tox_pipe = hf_pipeline("text-classification", model=settings.TOXIC_BERT_MODEL_ID, device=-1)
 
-            # 3. Register All Scanners to Pipeline
+            tox_pipe = load_text_classification_pipeline(
+                model_id=settings.TOXIC_BERT_MODEL_ID,
+                hf_token=settings.HF_TOKEN
+            )
+
+            # 3. Register Scanners to Pipeline
             logger.info("Registering all scanners into the Security Pipeline...")
-            
-            # Input Stage Scanners
             security_pipeline.register(PromptGuardScanner(pipeline=pg_pipe))
             security_pipeline.register(CustomRegexScanner())
             security_pipeline.register(SpacyScanner(analyzer=app.state.spacy_analyzer))
             security_pipeline.register(Gliner1Scanner(analyzer=app.state.gliner_analyzer))
             security_pipeline.register(Gliner2Scanner(analyzer=app.state.gliner2_analyzer))
             
-            # Input Stage Scanners (toxicity scans user prompts)
             try:
-                # Changed from OUTPUT to INPUT to block toxic user prompts
                 security_pipeline.register(ToxicityScanner(pipeline=tox_pipe, stage=ScannerStage.INPUT))
             except Exception as e:
                 logger.warning(f"Toxicity scanner registration skipped: {e}")
