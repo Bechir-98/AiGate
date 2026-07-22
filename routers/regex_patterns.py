@@ -9,20 +9,17 @@ from sqlalchemy import select, func
 
 from database import get_db
 from models.db_models import DBCustomRegexPattern
+from scanners.input_scanners.regex_scanner import clear_compiled_regex_cache
 
 logger = logging.getLogger("gateway_regex_patterns")
 router = APIRouter(prefix="/regex-patterns", tags=["Custom Regex Patterns"])
 
 
-# ==========================================
-# PYDANTIC SCHEMAS
-# ==========================================
-
 class RegexPatternCreate(BaseModel):
-    name: str = Field(..., min_length=1, description="Unique identifier for this rule (e.g. 'employee_id')")
-    pattern: str = Field(..., min_length=1, description="The raw regex string (e.g. 'E-\\\\d{6}')")
-    entity_type: str = Field(..., min_length=1, description="The entity label (e.g. 'EMPLOYEE_ID')")
-    score: float = Field(default=0.85, ge=0.0, le=1.0, description="Confidence score (0.0–1.0)")
+    name: str = Field(..., min_length=1)
+    pattern: str = Field(..., min_length=1)
+    entity_type: str = Field(..., min_length=1)
+    score: float = Field(default=0.85, ge=0.0, le=1.0)
 
     @field_validator("pattern")
     @classmethod
@@ -66,25 +63,16 @@ class RegexPatternResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ==========================================
-# HELPERS
-# ==========================================
-
 async def _invalidate_cache(request: Request) -> None:
-    """Clears the Redis cache so the next request fetches fresh patterns."""
     try:
         await request.app.state.redis.delete("custom_regex_patterns")
+        clear_compiled_regex_cache()
     except Exception as e:
         logger.warning(f"Failed to invalidate custom regex cache: {e}")
 
 
-# ==========================================
-# ENDPOINTS
-# ==========================================
-
 @router.get("/", response_model=List[RegexPatternResponse])
 async def list_patterns(db: AsyncSession = Depends(get_db)):
-    """Returns all custom regex patterns (active and inactive)."""
     result = await db.execute(
         select(DBCustomRegexPattern).order_by(DBCustomRegexPattern.id.asc())
     )
@@ -97,7 +85,6 @@ async def create_pattern(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Registers a new custom regex pattern rule."""
     name_lower = payload.name.strip().lower()
 
     existing = await db.execute(
@@ -134,7 +121,6 @@ async def update_pattern(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Updates an existing regex pattern."""
     result = await db.execute(
         select(DBCustomRegexPattern).where(DBCustomRegexPattern.id == pattern_id)
     )
@@ -164,7 +150,6 @@ async def delete_pattern(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Permanently removes a pattern."""
     result = await db.execute(
         select(DBCustomRegexPattern).where(DBCustomRegexPattern.id == pattern_id)
     )

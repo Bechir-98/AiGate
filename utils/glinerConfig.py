@@ -3,30 +3,39 @@ import onnxruntime as ort
 from typing import Dict, List, Optional
 from presidio_analyzer import AnalyzerEngine
 from presidio_analyzer.predefined_recognizers import GLiNERRecognizer
+from config import settings
 from utils.null_nlp_engine import NullNlpEngine
 from utils.gliner2Recognizer import GLiNER2Recognizer
 from scanners.scanner import request_entities_var
+
 
 class CustomGLiNERRecognizer(GLiNERRecognizer):
     @property
     def supported_entities(self) -> List[str]:
         base_entities = list(set(self.model_to_presidio_entity_mapping.values()))
         req_entities = request_entities_var.get()
-        if req_entities:
-            return list(set(base_entities + req_entities))
-        return base_entities
+        return list(set(base_entities + req_entities)) if req_entities else base_entities
 
     @supported_entities.setter
     def supported_entities(self, value: List[str]) -> None:
         pass
 
-def create_gliner_analyzer(entity_mapping: Dict[str, str]):
+
+def _create_single_recognizer_analyzer(recognizer) -> AnalyzerEngine:
+    """Helper to instantiate an AnalyzerEngine with NullNlpEngine and a single recognizer."""
+    analyzer_engine = AnalyzerEngine(nlp_engine=NullNlpEngine())
+    for rec in analyzer_engine.registry.recognizers.copy():
+        analyzer_engine.registry.remove_recognizer(rec.name)
+    analyzer_engine.registry.add_recognizer(recognizer)
+    return analyzer_engine
+
+
+def create_gliner_analyzer(entity_mapping: Dict[str, str]) -> AnalyzerEngine:
     resolved_model_name = os.getenv("GLINER1_MODEL_PATH", "rpeel/glitext-pii-edge")
 
-    # Optimize ONNX Runtime for CPU usage to prevent thread context-switching overhead
     session_options = ort.SessionOptions()
-    session_options.intra_op_num_threads = 2
-    session_options.inter_op_num_threads = 2
+    session_options.intra_op_num_threads = settings.GLINER_INTRA_OP_THREADS
+    session_options.inter_op_num_threads = settings.GLINER_INTER_OP_THREADS
     session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
     gliner_recognizer = CustomGLiNERRecognizer(
@@ -41,20 +50,12 @@ def create_gliner_analyzer(entity_mapping: Dict[str, str]):
         session_options=session_options,
     )
 
-    analyzer_engine = AnalyzerEngine(
-        nlp_engine=NullNlpEngine()
-    )
+    return _create_single_recognizer_analyzer(gliner_recognizer)
 
-    for recognizer in analyzer_engine.registry.recognizers.copy():
-        analyzer_engine.registry.remove_recognizer(recognizer.name)
 
-    analyzer_engine.registry.add_recognizer(gliner_recognizer)
-    
-    return analyzer_engine
-
-def create_gliner2_analyzer(entity_mapping: Dict[str, str], load_onnx_model: bool = True):
+def create_gliner2_analyzer(entity_mapping: Dict[str, str], load_onnx_model: bool = True) -> AnalyzerEngine:
     local_path = os.getenv("GLINER2_MODEL_PATH", "/app/gliner2-PII")
-    
+
     if os.path.exists(local_path) and os.listdir(local_path):
         resolved_model_name = local_path
     else:
@@ -64,33 +65,20 @@ def create_gliner2_analyzer(entity_mapping: Dict[str, str], load_onnx_model: boo
         else:
             resolved_model_name = "fastino/gliner2-privacy-filter-PII-multi"
 
-    session_options = ort.SessionOptions()
-    session_options.intra_op_num_threads = 2
-    session_options.inter_op_num_threads = 1
-    session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-
     gliner2_recognizer = GLiNER2Recognizer(
-        model_name=resolved_model_name, 
-        entity_mapping=entity_mapping, 
+        model_name=resolved_model_name,
+        entity_mapping=entity_mapping,
         threshold=0.5,
         map_location="cpu",
         load_onnx_model=load_onnx_model,
+        intra_op_num_threads=settings.GLINER_INTRA_OP_THREADS,
+        inter_op_num_threads=settings.GLINER_INTER_OP_THREADS,
     )
 
-    analyzer_engine = AnalyzerEngine(nlp_engine=NullNlpEngine())
+    return _create_single_recognizer_analyzer(gliner2_recognizer)
 
-    for recognizer in analyzer_engine.registry.recognizers.copy():
-        analyzer_engine.registry.remove_recognizer(recognizer.name)
 
-    analyzer_engine.registry.add_recognizer(gliner2_recognizer)
-    
-    return analyzer_engine
-
-def update_analyzer_mappings(analyzer_engine: AnalyzerEngine, entity_mapping: Dict[str, str]):
-    """
-    Dynamically updates the entity mappings of the registered GLiNER/GLiNER2 recognizers
-    inside a Presidio AnalyzerEngine, without reloading the core models.
-    """
+def update_analyzer_mappings(analyzer_engine: AnalyzerEngine, entity_mapping: Dict[str, str]) -> None:
     for recognizer in analyzer_engine.registry.recognizers:
         if recognizer.name in ("GLiNERRecognizer", "GLiNER2Recognizer"):
             recognizer.model_to_presidio_entity_mapping = entity_mapping

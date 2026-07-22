@@ -1,9 +1,19 @@
 [project]
 name = "gateway"
 version = "0.1.0"
-description = "Add your description here"
+description = "LLM Security & Reversible Anonymization Gateway"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "pip>=26.1.2",
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "redis",
+    "presidio-analyzer",
+    "presidio-analyzer[gliner]",
+    "presidio_anonymizer",
+    "openai",
+    "pydantic-settings>=2.0.0",
+    "httpx",
 ]

@@ -1,19 +1,31 @@
+import re
 from typing import List, Union, Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    # --- Framework Environment ---
     FASTAPI_ENV: str = "development"
     PROJECT_NAME: str = "LLM Security & Anonymization Gateway"
     VERSION: str = "1.0.0"
-    
-    # --- Authentication & Hugging Face ---
+
+    API_KEY: Optional[str] = None
     HF_TOKEN: Optional[str] = None
-    
-    # --- CORS Configuration ---
+    LITELLM_API_KEY: str = "litellm"
+    LITELLM_TIMEOUT: int = 60
+    LITELLM_CONNECT_TIMEOUT: int = 5
+    LITELLM_MAX_RETRIES: int = 2
+    VAULT_TTL: int = 1800
+    CONFIG_CACHE_TTL: int = 300
+    PII_THREAD_POOL_SIZE: int = 8
+    ANONYMIZER_THREAD_POOL_SIZE: int = 32
+    DEANONYMIZER_THREAD_POOL_SIZE: int = 16
+    PROMPT_GUARD_THRESHOLD: float = 0.75
+    TOXICITY_THRESHOLD: float = 0.50
+    GLINER_INTRA_OP_THREADS: int = 2
+    GLINER_INTER_OP_THREADS: int = 2
+
     ALLOWED_ORIGINS: Union[str, List[str]] = "*"
-    
+
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
     def parse_allowed_origins(cls, value: Union[str, List[str]]) -> List[str]:
@@ -27,32 +39,30 @@ class Settings(BaseSettings):
     def cors_settings(self) -> dict:
         return {
             "allow_origins": self.ALLOWED_ORIGINS,
-            "allow_credentials": True,
+            "allow_credentials": self.ALLOWED_ORIGINS != ["*"],
             "allow_methods": ["*"],
             "allow_headers": ["*"],
         }
-    
-    # --- Infrastructure URLs ---
+
     DATABASE_URL: str
     REDIS_URL: str
     LITELLM_API_URL: str = "http://litellm:4000/v1"
-    
+
     @property
     def async_database_url(self) -> str:
-        """Converts protocol to asyncpg for SQLAlchemy compatibility."""
+        if self.DATABASE_URL.startswith("postgresql+asyncpg://"):
+            return self.DATABASE_URL
         if self.DATABASE_URL.startswith("postgresql://"):
             return self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
         return self.DATABASE_URL
-    
-    # --- AI Engine Model Paths ---
+
     GLINER1_MODEL_PATH: str = "rpeel/glitext-pii-edge"
-    #GLINER2_MODEL_PATH: str = "/app/gliner2-PII"
     GLINER2_MODEL_PATH: str = "fastino/gliner2-privacy-filter-PII-multi"
     PROMPT_GUARD_MODEL_ID: str = "gravitee-io/Llama-Prompt-Guard-2-86M-onnx"
-    #PROMPT_GUARD_MODEL_ID: str = "meta-llama/Llama-Prompt-Guard-2-86M"
-    #TOXIC_BERT_MODEL_ID: str = "unitary/toxic-bert"
     TOXIC_BERT_MODEL_ID: str = "Xenova/toxic-bert"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()
+
+VAULT_TOKEN_PATTERN = re.compile(r"(?:<|&lt;)[A-Za-z_]+_[a-f0-9]{6}(?:>|&gt;)", re.IGNORECASE)

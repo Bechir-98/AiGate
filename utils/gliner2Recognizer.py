@@ -9,23 +9,13 @@ logger = logging.getLogger("presidio-analyzer")
 
 
 def optimize_gliner_label(raw_label: str) -> str:
-    """
-    Cleans up any user input to be optimized for GLiNER's text encoder.
-    Example: 
-      'MAC_ADDRESS' -> 'Mac Address'
-      'social-security-number' -> 'Social Security Number'
-      'id' -> 'Id'
-    """
-    # Replace underscores and hyphens with spaces
     clean_str = re.sub(r'[-_]', ' ', raw_label)
-    # Remove extra spaces
     clean_str = re.sub(r'\s+', ' ', clean_str).strip()
-    # Convert to Title Case
     return clean_str.title()
 
 
 class GLiNER2Recognizer(LocalRecognizer):
-    """GLiNER2 model based entity recognizer supporting both PyTorch and ONNX runtimes."""
+    """GLiNER2-based entity recognizer supporting PyTorch and ONNX runtimes."""
 
     def __init__(
         self,
@@ -168,14 +158,12 @@ class GLiNER2Recognizer(LocalRecognizer):
         gliner_to_presidio_safe = {k.lower(): v for k, v in self.model_to_presidio_entity_mapping.items()}
         presidio_to_gliner_safe = {v.lower(): k for k, v in self.model_to_presidio_entity_mapping.items()}
 
-        
         labels = list(self.gliner_labels)
-        
+
         if entities:
             for requested_entity in entities:
                 req_lower = requested_entity.lower()
-                
-                # If it's a known Presidio label mapping
+
                 if req_lower in presidio_to_gliner_safe:
                     gliner_target = presidio_to_gliner_safe[req_lower]
                     if gliner_target not in labels:
@@ -184,14 +172,13 @@ class GLiNER2Recognizer(LocalRecognizer):
                     optimized_label = optimize_gliner_label(requested_entity)
                     if optimized_label not in labels:
                         labels.append(optimized_label)
-        
-        
+
         normalized_predictions = self._extract_entities(text, labels)
 
         results = []
         for p_label, p_start, p_end, p_score in normalized_predictions:
             p_label_str = str(p_label)
-            
+
             default_presidio_fallback = p_label_str.upper().replace(" ", "_").replace("-", "_")
             presidio_entity = gliner_to_presidio_safe.get(p_label_str.lower(), default_presidio_fallback)
 

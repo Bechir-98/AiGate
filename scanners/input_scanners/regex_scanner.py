@@ -2,11 +2,22 @@ import re
 import uuid
 import json
 import logging
-from typing import Any
+from typing import Any, Dict
+from config import settings
 from scanners.scanner import BaseScanner, ScannerStage, ScanResult
 from services.regex_service import get_active_patterns
 
 logger = logging.getLogger("custom_regex_scanner")
+
+_compiled_regex_cache: Dict[str, re.Pattern] = {}
+
+def _get_compiled_pattern(pattern_str: str) -> re.Pattern:
+    if pattern_str not in _compiled_regex_cache:
+        _compiled_regex_cache[pattern_str] = re.compile(pattern_str)
+    return _compiled_regex_cache[pattern_str]
+
+def clear_compiled_regex_cache() -> None:
+    _compiled_regex_cache.clear()
 
 class CustomRegexScanner(BaseScanner):
     name = "custom_regex"
@@ -15,24 +26,22 @@ class CustomRegexScanner(BaseScanner):
     async def scan(self, text: str, **kwargs: Any) -> ScanResult:
         db = kwargs.get("db")
         app_state = kwargs.get("app_state")
-        
+
         if not db or not app_state or not hasattr(app_state, "redis"):
             logger.warning("Missing db or redis client in scanner kwargs. Skipping CustomRegexScanner.")
             return ScanResult(scanner_name=self.name, passed=True)
 
         redis_client = app_state.redis
 
-        # 1. Fetch active patterns from Redis/DB
         patterns = await get_active_patterns(db, redis_client)
         if not patterns:
             return ScanResult(scanner_name=self.name, passed=True)
 
         matches_to_process = []
 
-        # 2. Find all matches across active patterns
         for p in patterns:
             try:
-                compiled = re.compile(p["pattern"])
+                compiled = _get_compiled_pattern(p["pattern"])
                 for match in compiled.finditer(text):
                     matches_to_process.append({
                         "start": match.start(),
@@ -47,10 +56,6 @@ class CustomRegexScanner(BaseScanner):
         if not matches_to_process:
             return ScanResult(scanner_name=self.name, passed=True)
 
-        # 3. Sort matches by starting index (reverse) to replace safely without offset drift
-        matches_to_process.sort(key=lambda x: x["start"], reverse=True)
-
-        # Filter out overlapping matches (left-to-right, keep earliest)
         non_overlapping = []
         last_end = 0
         for m in sorted(matches_to_process, key=lambda x: (x["start"], -len(x["original_text"]))):
@@ -58,14 +63,11 @@ class CustomRegexScanner(BaseScanner):
                 non_overlapping.append(m)
                 last_end = m["end"]
 
-        # Sort again by start reverse for token replacement
-        non_overlapping.sort(key=lambda x: x["start"], reverse=True)
-
-        sanitized_text = text
+        parts = []
+        last_idx = 0
         detected_entities = []
         pipeline_redis_pairs = {}
 
-        # 4. Generate vault tokens and construct replacement string
         for m in non_overlapping:
             start, end = m["start"], m["end"]
             orig = m["original_text"]
@@ -74,16 +76,21 @@ class CustomRegexScanner(BaseScanner):
             hex_id = uuid.uuid4().hex[:6]
             token = f"<{entity}_{hex_id}>"
 
-            sanitized_text = sanitized_text[:start] + token + sanitized_text[end:]
+            parts.append(text[last_idx:start])
+            parts.append(token)
+            last_idx = end
+
             pipeline_redis_pairs[token] = orig
             detected_entities.append(entity)
 
-        # 5. Persist tokens to Redis (TTL 1800s = 30 minutes)
+        parts.append(text[last_idx:])
+        sanitized_text = "".join(parts)
+
         if pipeline_redis_pairs:
             try:
                 pipe = redis_client.pipeline()
                 for t_key, orig_val in pipeline_redis_pairs.items():
-                    pipe.setex(t_key, 1800, json.dumps({"original_text": orig_val}))
+                    pipe.setex(t_key, settings.VAULT_TTL, json.dumps({"original_text": orig_val}))
                 await pipe.execute()
             except Exception as e:
                 logger.error(f"Failed to store custom regex vault tokens in Redis: {e}")

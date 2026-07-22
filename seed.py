@@ -26,7 +26,6 @@ async def seed_database():
     async with async_sessionmaker_local() as session:
         async with session.begin():
             
-            # --- UPDATED: Look for 'active_scanners' (plural) ---
             config_query = await session.execute(
                 select(AppConfig).where(AppConfig.key == "active_scanners")
             )
